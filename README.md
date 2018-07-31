@@ -5,7 +5,11 @@ of content depicting construction of a leaflet-based map with popup
 graphics using an interesting dataset of historical European city
 populations. 
 
-The tutorial focuses on developing a leaflet map with popup ggplot2 charts like this:
+## Motivation
+
+This was initially designed as a short tutorial for a potential Meetup workshop that never materialized that was turned into a blog post that was never published. The tutorial focuses on developing a leaflet map with popup ggplot2 charts like this:
+
+![Example](leaflet_popup_demo.PNG)
 
 ## Try it
 
@@ -13,7 +17,23 @@ To run it locally on your computer simply clone this repository
 ```
 git clone https://github.com/dshkol/europop-leaflet.git
 ```
-and open up the html file in the `/reports` folder in your browser.
+and open the html file in the `reports` directory in a browser.
+
+## Modify it
+
+Make changes by editing the `britain_pop_change.Rmd` file in the `reports` directory. Some easy changes to play around with include changing the area of interest from England and Wales to, for example, Germany, or Scandinavia. This can be done by adjusting the code in the Rmarkdown document and knitting to a new HTML file. 
+
+```{r}
+# Replace this
+euro_cities <- left_join(europop, city_coords) %>% 
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) %>% 
+  filter(region %in% c("England and Wales","Scotland"))
+  
+# With this
+euro_cities <- left_join(europop, city_coords) %>% 
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) %>% 
+  filter(region %in% c("Germany","Scandinavia"))
+```
 
 ## Data
 
