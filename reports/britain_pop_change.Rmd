@@ -1,0 +1,145 @@
+---
+title: "Population Change in Great Britain, 1500-1800"
+author: "Dmitry Shkolnik"
+date: "15/03/2018"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      fig.width=10,
+                      fig.height = 8,
+                      message=FALSE, 
+                      warning=FALSE)
+```
+
+This is a demo showing how to use the R `leaflet` package in combination with utility tools from the `mapview` package to generate a map that features popups capable of displaying individual charts when clicked on. 
+
+For this demo, we will look at changes in city populations for selected European regions, specifically England, Wales, and Scotland, between the 16th and 19th century, using data from the `europop` package.
+
+### Background: The Europop package
+
+The [`europop`](https://github.com/mdlincoln/europop) package uses data from Jan De Vries' [_European Urbanization, 1500-1800_](https://books.google.ca/books/about/European_Urbanization_1500_1800.html?id=11yHAAAAIAAJ&redir_esc=y) (Cambridge: Harvard University Press, 1984), and includes data for European cities with populations of at least 10,000 individuals at some point between 1500-1800. These cities are further grouped into regions such as "England and Wales", "Germany", or "Scandinavia". The package also includes latitude and longitude coordinates for cities included in the dataset, allowing for easy use for spatial analysis. 
+
+As the data in this package has both a spatial and temporal dimension, a simple map visualization would not communicate all available information. One approach that would allow us to look at both types of data simultaneously would be to combine the interactivity of leaflet maps with additional detail via a chart embedded in the HTML-capable popup fields for leaflet markers. 
+
+### Step 1: Assembling data
+
+Putting together the data is straightforward, as the package contains additional data with coordinate pairs for each city. Using the `sf` package, we can cast the joined data frame into a spatial file of `sf`-class by specifying which coordinates are to be used and the appropriate projection. In this case, the coordinates supplied with the package were designed to be used with web Mercator friendly WGS84 projections (also known as EPSG: 4326). 
+```{r data_prep}
+# install europop package
+# install.packages("europop")
+
+library(dplyr)
+library(europop)
+library(sf)
+
+# Create spatial object
+euro_cities <- left_join(europop, city_coords) %>% 
+  st_as_sf(coords = c("lon", "lat"), crs = 4326) %>% 
+  filter(region %in% c("England and Wales","Scotland"))
+
+glimpse(euro_cities)
+```
+
+### Step 2: Some simple explorations
+
+Let's take a quick look at the data on a city-by-city level in this data. 
+```{r data_explore, fig.width=12}
+library(ggplot2)
+
+ggplot(euro_cities, aes(x = year, y = population, group = city)) + 
+  geom_bar(stat = "identity", fill = "grey10") +
+  facet_wrap(~city, ncol = 8) +
+  theme_minimal() + 
+  labs(title = "Population changes of cities in England, Wales, and Scotland, 1500-1800",
+       caption = "Source: Jan de Vries, European Urbanization, 1500-1800 (1984).", x = "", y = "Thousands") +
+  theme(panel.grid = element_blank())
+```
+Clearly London had significantly more people than the other cities at this point in time to the extent that this graphic is not meaningful. This can be addressed by changing the `scales` parameter in `facet_wrap(...)` to `free` at the cost of being able to directly compare each city against another at a glance.
+```{r data_explore2, fig.width=12}
+ggplot(euro_cities, aes(x = year, y = population, group = city)) + 
+  geom_bar(stat = "identity", fill = "grey10") +
+  facet_wrap(~city, ncol = 8, scales = "free") +
+  theme_minimal() + 
+  labs(title = "Population changes of cities in England, Wales, and Scotland, 1500-1800",
+       caption = "Source: Jan de Vries, European Urbanization, 1500-1800 (1984).", x = "", y = "Thousands") + scale_x_continuous(breaks = c(1500, 1650, 1800)) + 
+  theme(panel.grid = element_blank())
+```
+
+### Step 3: Putting it on a map
+
+The fantastic [`leaflet`](https://rstudio.github.io/leaflet/) package from RStudio makes creating slippy web-ready maps in R a relative breeze. 
+
+First we create a map by initializing a `leaflet()` object, then we add a basemap tile layer. In this case, I want to use Stamen Terrain tiles, but there are many alternatives we can use. 
+
+```{r leaflet_plot1}
+library(leaflet)
+# Generate empty leaflet map
+leaflet() %>% 
+  addProviderTiles("Stamen.Terrain", group='Terrain')
+```
+Next, Let's add some markers corresponding to our data.
+```{r leaflet_plot2}
+# Generate leaflet map with markers
+leaflet() %>% 
+  addProviderTiles("Stamen.Terrain", group='Terrain') %>% 
+  addCircleMarkers(data=euro_cities)
+```
+Easy as that. 
+
+### Step 4: Creating inset plots
+
+So how do we combine the city-level plots with a map? Enter the [`mapview`](https://r-spatial.github.io/mapview/index.html) package which works with and extends what you can do with leaflet-based maps. The goal here is to create a Leaflet-based slippy map with our cities on the map that display their own chart as a popup when clicked on. 
+
+This can be done with the `mapview` package in the following process: 
+- first, we create a function to generate plots one-by-one for each city and 
+- next we map that function to the list of cities in the dataset using a call to `map` from the [`purrr`](https://purrr.tidyverse.org) package
+- after that we create another function to save each plot individually to a local directory with names ordered in the same manner as the cities are in the data
+- finally, using `mapview::popuGraph` we generate a list of the same-length as the number of cities and markers in our map containing HTML code for a styled popup with a link to the appropriate plot saved in the previous step
+
+```{r plot_insets}
+# Requires mapview and leaflet packages for visualization
+# install.packages("mapview")
+library(mapview)
+library(purrr)
+
+# A function to create an inset plot for each marker
+inset_plot <- function(sel_city, df) {
+  ggplot(df %>% filter(city == sel_city), 
+         aes(x = year, y = population)) + 
+    geom_bar(stat = "identity", fill = "grey10") + 
+    labs(title = sel_city, x = "", y = "Thousands") + 
+    theme_minimal()
+}
+
+inset_list <- map(.x = unique(euro_cities$city), .f = inset_plot, df = euro_cities)
+
+# Save within local directory for Leaflet HTML popup to access
+# dir.create("../graphs")
+inset_save <- function(x) {
+  ggsave(inset_list[[x]], file = paste0("../graphs/tmp_",x,".png"), width = 4, height = 2, units = "in")
+}
+
+invisible(map(.x = 1:length(inset_list), .f = inset_save))
+
+# List of HTML content for popups
+pop.plots = popupGraph(inset_list, type='png', width = 300, height = 150)
+```
+
+### Step 5: Generate Leaflet map with chart popups
+
+The final step is easy. We simply replicate the previous call to create a leaflet map with markers, except now we reference our list of popup HTML content created in the previous step. 
+
+```{r leaflet_plot3}
+# Generate leaflet map with popups
+leaflet() %>% 
+  addProviderTiles("Stamen.Terrain", group='Terrain') %>% 
+  addCircleMarkers(data=euro_cities, popup=~pop.plots)
+```
+_Et voila_. 
+
+### Conclusion
+
+Working with popups with embedded content requires thinking a little bit about the structure of the data you are trying to represent, but the process is relatively straightforward. The `mapview` package provides an ensemble of tools to apply all sorts of functionality to leaflet-based interactive maps created within R. This includes static chart popups like in this tutorial, but it can also include vector SVG content, embedded interactive charts using Plotly, Highcharter, or other JS-based charting libraries, or even altogether embedded iframes like Youtube videos. 
+
+
