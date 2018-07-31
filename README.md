@@ -23,7 +23,7 @@ and open the html file in the `reports` directory in a browser.
 
 Make changes by editing the `britain_pop_change.Rmd` file in the `reports` directory. Some easy changes to play around with include changing the area of interest from England and Wales to, for example, Germany, or Scandinavia. This can be done by adjusting the code in the Rmarkdown document and knitting to a new HTML file. 
 
-```{r}
+```r
 # Replace this
 euro_cities <- left_join(europop, city_coords) %>% 
   st_as_sf(coords = c("lon", "lat"), crs = 4326) %>% 
